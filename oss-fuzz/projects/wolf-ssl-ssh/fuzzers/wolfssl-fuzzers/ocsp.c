@@ -12,7 +12,11 @@ FUZZER_RUN_HEADER
     OcspEntry single;
     CertStatus status;
     InitOcspResponse(&resp, &single, &status, data, size, NULL);
-    OcspResponseDecode(&resp, NULL, NULL, 1);
+    OcspResponseDecode(&resp, NULL, NULL, 1, 1);
+    FreeOcspResponse(&resp);
+
+    InitOcspResponse(&resp, &single, &status, data, size, NULL);
+    OcspResponseDecode(&resp, NULL, NULL, 1, 0);
     FreeOcspResponse(&resp);
 }
 FUZZER_RUN_FOOTER
