@@ -422,7 +422,13 @@ void memory_test(const void* p, const size_t size)
         }
     }
 
-    void fuzzer_initialize(const int argc, char** argv) {
+    /* Track if --randomize-alloc was seen (needed for fuzzer_post_initialize) */
+    static int randomizeAlloc = 0;
+
+    void fuzzer_initialize(int* argc, char** argv) {
+        int i;
+        int newArgc;
+
         fp_dev_null = fopen("/dev/null", "wb");
         if ( fp_dev_null == NULL ) {
             printf("Cannot open /dev/null for writing\n");
@@ -435,18 +441,41 @@ void memory_test(const void* p, const size_t size)
 
         fuzzer_install_memory_allocator();
 
-        for (int i = 1; i < argc; i++) {
-            if ( argv[i][0] == '-' && argv[i][1] == '-' ) {
+        randomizeAlloc = 0; /* Reset for each initialization */
+        newArgc = 1; /* Keep argv[0] (program name) */
+        for (i = 1; i < *argc; i++) {
+            if (argv[i][0] == '-' && argv[i][1] == '-') {
                 if ( !strcmp(argv[i], "--randomize-io") ) {
                     enable_io_randomization();
+                    /* Skip this argument - don't pass to libFuzzer */
                 } else if ( !strcmp(argv[i], "--randomize-alloc") ) {
-                    /* Will be handled in fuzzer_post_initialize() */
+                    /* Mark that we saw this flag - will be handled in
+                     * fuzzer_post_initialize() */
+                    randomizeAlloc = 1;
+                    /* Skip this argument - don't pass to libFuzzer */
+                } else if ( !strcmp(argv[i], "--") ) {
+                    int j;
+
+                    /* Skip -- separator itself */
+                    /* Everything after -- should be passed to libFuzzer */
+                    /* Start copying from i+1 to skip the -- */
+                    for (j = i + 1; j < *argc; j++) {
+                        argv[newArgc] = argv[j];
+                        newArgc++;
+                    }
+                    break;
                 } else {
                     printf("Invalid parameter: %s\n", argv[i]);
                     exit(0);
                 }
+            } else {
+                /* Keep non-fuzzer arguments (they'll be passed to libFuzzer) */
+                argv[newArgc] = argv[i];
+                newArgc++;
             }
         }
+        /* Update argc to exclude consumed fuzzer arguments */
+        *argc = newArgc;
     }
 
     void fuzzer_post_initialize(const int argc, char** argv) {
@@ -455,7 +484,8 @@ void memory_test(const void* p, const size_t size)
             enable_allocation_randomization();
             enable_io_randomization();
 #else
-            if ( !strcmp(argv[i], "--randomize-alloc") ) {
+            /* Check if --randomize-alloc was seen before argv was modified */
+            if (randomizeAlloc) {
                 enable_allocation_randomization();
             }
 #endif
@@ -477,7 +507,7 @@ static const char* get_certs_path(const char* argv0, const char* file)
 
 #define FUZZER_INITIALIZE_HEADER \
     int LLVMFuzzerInitialize(int *argc, char ***argv) { \
-        fuzzer_initialize(*argc, *argv);
+        fuzzer_initialize(argc, *argv);
 
 #if defined(FUZZER_ALLOCATION_GUIDED)
     #define FUZZER_INITIALIZE_FOOTER_1 \
